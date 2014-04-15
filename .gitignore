@@ -2,6 +2,6 @@ node_modules
 .c9revisions
 azure_error
 *.suo
-settings.json
-*.publishsettings
+rasettings.json
+raaccounts.publishsettings
 

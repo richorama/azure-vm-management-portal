@@ -1,0 +1,16 @@
+{
+    "StorageAccount": 		"ACCOUNT_NAME",
+    "StorageKey": 			"ACCOUNT_KEY",
+    "VMUsername":			"AzureUser",
+    "MailUsername": 		"SENDGRID_USERNAME",
+    "MailPassword": 		"SENDGRID_PASSWORD",
+    "MailFrom": 			"EMAIL@ADDRESS.COM",
+    "Location":             "North Europe",
+    "ActiveDirectoryConfig":{
+        "realm":                "http://YOURWEBSITE.azurewebsite.net/",
+        "identityProviderUrl":  "https://login.windows.net/983fe621-887e-4a1b-93e9-559200ff49ad/wsfed",
+        "identityMetadata":     "https://login.windows.net/983fe621-887e-4a1b-93e9-559200ff49ad/federationmetadata/2007-06/federationmetadata.xml" ,
+        "logoutUrl":            "http://YOURWEBSITE.azurewebsite.net/"
+    },
+    "Administrators":       ["YOUR@EMAIL.ADDRESS.COM"]
+}
