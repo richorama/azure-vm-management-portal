@@ -15,6 +15,7 @@ fs.existsSync = fs.existsSync || require('path').existsSync;
 var parser = require('azure-publishsettings-parser');
 var subscriptions = {};
 var certs = {};
+
 parser.loadFromFile('accounts.publishsettings', function(err, subs){
     subs.forEach(function(x){
 		subscriptions[x.Id] = x.Name;
@@ -28,115 +29,12 @@ if (process.env["APPSETTING_ENVIRONMENT"] && fs.existsSync(process.env["APPSETTI
     filename = process.env["APPSETTING_ENVIRONMENT"] + ".json"
 } 
 settings = JSON.parse(fs.readFileSync(filename).toString());
-
-var sendgrid  = require('sendgrid')(settings.MailUsername, settings.MailPassword);
-
-var secret = "2aec8596-efa2-4181-b781-4d723f5a8571";
-
-var tableService = azure.createTableService(settings.StorageAccount,settings.StorageKey);
-tableService.createTableIfNotExists("log", function(err){
-    if(err) console.log(err);
-});
+var logger = require('./logging')(settings);
+var emailer = require('./emailer')(settings, logger);
 
 function getSms(sid){
 	return parser.createServiceManagementService(azure, certs[sid]);
 }
-
-function getLogPartitionKey(){
-    var date = new Date();
-    return date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
-}
-
-function log(req, action){
-	var now = Date.now();
-	var entity = { 
-		subscription: req.params.sid || "",
-		message: action,
-		RowKey: String(Math.pow(2, 53) - now),
-		PartitionKey: getLogPartitionKey()
-	}
-	if (req.user){
-		entity.userid = req.user.id || "";
-		entity.useremail = req.user.email || "";
-	} else {
-		entity.userid = "";
-		entity.useremail = "";
-	}
-
-	tableService.insertEntity("log", entity, function(err){
-		if (err){
-			console.log(err);
-		}
-	});	
-}
-
-
-function logError(req, message){
-	var now = Date.now();
-	var entity = { 
-		message: JSON.stringify(message),
-		RowKey: String(Math.pow(2, 53) - now),
-		PartitionKey: getLogPartitionKey(),
-	}
-	if (req && req.user){
-		entity.userid = req.user.id || "";
-		entity.useremail = req.user.email || "";
-		entity.subscription = req.params.sid || "";
-	} else {
-		entity.userid = "";
-		entity.useremail = "";
-		entity.subscription = "";
-	}
-
-	tableService.insertEntity("log", entity, function(err){
-		if (err){
-			console.log(err);
-		}
-	});	
-}
-
-function sendEmail(recipient, title, text){
-	sendgrid.send({
-	  to:       recipient,
-	  from:     settings.MailFrom,
-	  subject:  title,
-	  html:     text
-	}, function(error, json) {
-	    if(error){
-	        console.log(error);
-	        logError(undefined, error);
-	    }else{
-	        console.log("sent email to " + recipient);
-	        logError(undefined, "sent email to " + recipient);
-	    }
-	});
-}
-
-function hash(text){
-	var shasum = crypto.createHash('sha1');
-	text.forEach(function(x){
-		shasum.update(x);
-	});
-	return shasum.digest('hex');
-}
-
-function vmCreateEmail(user, host, password){
-	var message = "";
-	message += "Dear " + user.displayName + ",<br/><br/>This email confirms that you have created a Virtual Machine called " + host + ".<br/>";
-	message += "The machine will take a few minutes to start, and will be accessible on this url:<br/>";
-	message += "<a href='http://" + host + ".cloudapp.net/ttrent_web'>http://" + host + ".cloudapp.net/</a><br/><br/>";
-	message += "The username for the machine is " + settings.VMUsername + "<br/>";
-	message += "The password for the machine is " + password + "<br/><br/>";
-	message += "Please remember to delete your Virtual Machine when you have finished with it.";
-	sendEmail(user.email, "New Virtual Machine", message);
-}
-
-function vmDeleteEmail(user, host){
-	var message = "";
-	message += "Dear " + user.displayName + ",<br/><br/>This email confirms that you have deleted a Virtual Machine called " + host + ".<br/>";
-	sendEmail(user.email, "Deleted Virtual Machine", message);
-}
-
 
 // configure Express
 app.configure(function() {
@@ -154,7 +52,6 @@ app.configure(function() {
 
 
 /// auth
-
 passport.serializeUser(function(user, done) {
   done(null, user);
 });
@@ -180,7 +77,7 @@ app.get('/auth/probe', function(req,res){
 
 		var subs = [];
 		for (var x in subscriptions){
-				subs.push({id:x,name:subscriptions[x]});
+			subs.push({id:x,name:subscriptions[x]});
 		}
 		res.json({auth:true, admin: req.user.admin, displayName:req.user.displayName, subscriptions:subs});	
 	} else {
@@ -238,7 +135,7 @@ app.get("/:sid/all", ensureAuthenticated, function(req,res){
 					sms.getDeploymentBySlot(svc.ServiceName,"production",function(err,data){
 						if (err && !(err.code && err.code == "ResourceNotFound")) {
 							console.log(err);
-							logError(req, err);
+							logger.error(req, err);
 						}
 						if (data.body && data.body.RoleList){
 							data.body.RoleList.forEach(function(x){
@@ -273,7 +170,7 @@ app.get("/:sid/vms", ensureAuthenticated, function(req,res){
 	sms.listHostedServices(function(err,data){
 		if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 		res.json(data.body)
 	});
@@ -284,7 +181,7 @@ app.get("/:sid/vms/:name", ensureAuthenticated, function(req,res){
 	sms.getDeploymentBySlot(req.params.name,"production",function(err,data){
 		if (err) {
 			console.log(err);
-			logError(err);
+			logger.error(err);
 		}
 		if (data.body && data.body.RoleList){
 			data.body.RoleList.forEach(function(x){
@@ -302,40 +199,40 @@ app.get("/:sid/vms/:name", ensureAuthenticated, function(req,res){
 });
 
 app.post("/:sid/stop/:servicename/:deploymentid/:roleinstance", ensureAuthenticated, function(req,res){
-	log(req, "stopped " + req.params.servicename);
+	logger.log(req, "stopped " + req.params.servicename);
 
 	var sms = getSms(req.params.sid);
 	sms.shutdownRole(req.params.servicename,req.params.deploymentid,req.params.roleinstance,true,function(err,data){
 		if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 		res.json(data.body);
 	});
 });
 
 app.post("/:sid/start/:servicename/:deploymentid/:roleinstance", ensureAuthenticated, function(req,res){
-	log(req, "started " + req.params.servicename);
+	logger.log(req, "started " + req.params.servicename);
 
 	var sms = getSms(req.params.sid);
 	sms.startRole(req.params.servicename,req.params.deploymentid,req.params.roleinstance,function(err,data){
 		if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 		res.json(data.body);
 	});
 });
 
 app.post("/:sid/deploy/:servicename/:imagename", ensureAuthenticated, function(req,res){
-	log(req, "deployed " + req.params.imagename + " to " + req.params.servicename);
+	logger.log(req, "deployed " + req.params.imagename + " to " + req.params.servicename);
 	var vmpassword = generatePassword(12, false);
 
 	var sms = getSms(req.params.sid);
-	sms.createHostedService(req.params.servicename, {Location:"North Europe"}, function(err,data){
+	sms.createHostedService(req.params.servicename, {Location:settings.Location}, function(err,data){
 		if (err){
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 			res.json(data.body);	
 		} else {
 
@@ -343,42 +240,42 @@ app.post("/:sid/deploy/:servicename/:imagename", ensureAuthenticated, function(r
 			vmrole.RoleName = req.params.servicename;
 			vmrole.ConfigurationSets = [];
 
-			var set = {};
-			vmrole.ConfigurationSets[0] = set;
-			set.ConfigurationSetType = "WindowsProvisioningConfiguration";
-			set.ComputerName = "AZUREVM";
-			set.AdminUsername = settings.VMUsername;
-			set.AdminPassword = vmpassword;
-			set.ResetPasswordOnFirstLogon = false;
+			vmrole.ConfigurationSets[0] = {
+				ConfigurationSetType : "WindowsProvisioningConfiguration",
+				ComputerName : "AZUREVM",
+				AdminUsername : settings.VMUsername,
+				AdminPassword : vmpassword,
+				ResetPasswordOnFirstLogon : false
+			}
 
-			var set2 = {};		
-			vmrole.ConfigurationSets[1] = set2;
-			set2.ConfigurationSetType = "NetworkConfiguration";
+			vmrole.ConfigurationSets[1] = {
+				ConfigurationSetType = "NetworkConfiguration",
+				InputEndpoints : 
+				[{
+					LocalPort : 80,
+					Port : 80,
+					Name : "HTTP",
+					Protocol : "tcp"					
+				},
+				{
+					LocalPort : 3389,
+					Port : 3389,
+					Name : "RDP",
+					Protocol : "tcp"
+				}]
+			};		
 
-			set2.InputEndpoints = [];
-			set2.InputEndpoints[0] = {};
-			set2.InputEndpoints[0].LocalPort = 80;
-			set2.InputEndpoints[0].Port = 80;
-			set2.InputEndpoints[0].Name = "HTTP";
-			set2.InputEndpoints[0].Protocol = "tcp";
-
-
-			set2.InputEndpoints[1] = {};
-			set2.InputEndpoints[1].LocalPort = 3389;
-			set2.InputEndpoints[1].Port = 3389;
-			set2.InputEndpoints[1].Name = "RDP";
-			set2.InputEndpoints[1].Protocol = "tcp";
-
-			vmrole.OSVirtualHardDisk = {};
-			vmrole.OSVirtualHardDisk.SourceImageName = req.params.imagename;
+			vmrole.OSVirtualHardDisk = {
+				SourceImageName : req.params.imagename
+			};
 
 			sms.createDeployment(req.params.servicename,req.params.servicename,vmrole,{DeploymentSlot:"Production"}, function(err,data){
 				if (err) {
 					console.log(err);
-					logError(req, err);
+					logger.error(req, err);
 				}
 				res.json(data.body);		
-				vmCreateEmail(req.user, req.params.servicename, vmpassword);
+				emailer.vmCreateEmail(req.user, req.params.servicename, vmpassword);
 			});
 		}
 	});
@@ -391,32 +288,32 @@ function deleteHostedService(sid, name){
 			setTimeout(deleteHostedService, 60*1000, sid, name);
 		} else if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 	});
 }
 
 app.post("/:sid/delete/:servicename/:deploymentname", ensureAuthenticated, function(req,res){
-	log(req, "deleted " + req.params.servicename);
+	logger.log(req, "deleted " + req.params.servicename);
 
 	var sms = getSms(req.params.sid);
 	sms.deleteDeployment(req.params.servicename, req.params.deploymentname, function(err, data){
 		if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 		setTimeout(deleteHostedService, 60*1000, req.params.sid, req.params.servicename);
-		vmDeleteEmail(req.user, req.params.servicename);
+		emailer.vmDeleteEmail(req.user, req.params.servicename);
 		res.json(data.body);
 	});
 });
 
 app.post("/:sid/delete/:servicename", ensureAuthenticated, function(req,res){
-	log(req, "deleted " + req.params.servicename);
+	logger.log(req, "deleted " + req.params.servicename);
 
 	var sms = getSms(req.params.sid);
 	sms.deleteHostedService(req.params.servicename, function(err,data){
-		vmDeleteEmail(req.user, req.params.servicename);		
+		emailer.vmDeleteEmail(req.user, req.params.servicename);		
 		res.json(data.body);
 	});
 });
@@ -426,7 +323,7 @@ app.get("/:sid/images", ensureAuthenticated, function(req,res){
 	sms.listOSImage(function(err,data){
 		if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 		var output = [];
 		data.body.forEach(function(x){
@@ -439,7 +336,7 @@ app.get("/:sid/images", ensureAuthenticated, function(req,res){
 });
 
 app.post("/:sid/mount/:servicename/:deployment/:role/:disk", ensureAuthenticated, function(req,res){
-	log(req, "mounted a disk on " + req.params.servicename);
+	logger.log(req, "mounted a disk on " + req.params.servicename);
 
 	var sms = getSms(req.params.sid);
 	var disk = {};
@@ -448,20 +345,20 @@ app.post("/:sid/mount/:servicename/:deployment/:role/:disk", ensureAuthenticated
 	sms.addDataDisk(req.params.servicename, req.params.deployment, req.params.role, disk, function(err,data){
 		if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 		res.json(data);
 	});
 });
 
 app.post("/:sid/unmount/:servicename/:deployment/:role/:lun", ensureAuthenticated, function(req,res){
-	log(req, "unmounted a disk on " + req.params.servicename);
+	logger.log(req, "unmounted a disk on " + req.params.servicename);
 
 	var sms = getSms(req.params.sid);
 	sms.removeDataDisk(req.params.servicename, req.params.deployment, req.params.role, parseInt(req.params.lun), function(err,data){
 		if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 		res.json(data);
 	});	
@@ -472,7 +369,7 @@ app.get("/:sid/disks", ensureAuthenticated, function(req, res){
 	sms.listDisks(function(err, data){
 		if (err) {
 			console.log(err);
-			logError(req, err);
+			logger.error(req, err);
 		}
 		var output = [];
 		data.body.forEach(function(x){
@@ -495,74 +392,27 @@ app.get("/rdp/:host/:port", ensureAuthenticated, function(req, res){
 });
 
 app.get("/log", ensureAuthenticated, function(req, res){
-	var now = Date.now();
-	var query = azure.TableQuery
-        .select()
-        .from("log")
-        .where('PartitionKey eq ?', getLogPartitionKey());
-
-    queryEntities(query, function(error, entities, continuationToken){
-        if (error){
-            console.log(error);
-        }
-    	if (entities){
-    		entities.forEach(function(x){
-    			if (x.subscription){
-    				x.subscriptionName = subscriptions[x.subscription];
-    			}
-    		});
-    	}
-    	res.json(entities || []);
-    });    	
+    var date = new Date();
+    logger.queryLog(date.getFullYear(), date.getMonth() + 1, date.getDate(), function(err, data){
+    	fixSubscriptionNames(data);
+		res.json(data);
+	}) 
 });
 
 app.get("/log/:year/:month/:day", ensureAuthenticated, function(req, res){
-    var days = parseInt(req.params.days);
-
-	var now = Math.pow(2, 53) - (Date.now() / (1000 * 60 * 60));
-	var query = azure.TableQuery
-        .select()
-        .from("log")
-        .where('PartitionKey eq ?',  req.params.year + "-" + req.params.month + "-" + req.params.day);
-
-    queryEntities(query, function(error, entities, continuationToken){
-        if (error){
-            console.log(error);
-        }
-    	if (entities){
-    		entities.forEach(function(x){
-    			if (x.subscription){
-    				x.subscriptionName = subscriptions[x.subscription];
-    			}
-    		});
-    	}
-    	res.json(entities || []);
-    });    	
+	logger.queryLog(req.params.year, req.params.month, req.params.day, function(err, data){
+		fixSubscriptionNames(data);
+		res.json(data);
+	})   	
 });
 
-// queries results, and observes the continuation token
-function queryEntities(query, cb) {
-    tableService.queryEntities(query, function(error, entities, continuationToken){
-        if (error){
-            console.log(error);
-        }
-        if (!error && continuationToken.nextPartitionKey) { 
-            pageResults(entities, continuationToken, cb);
-        } else {
-            cb(error, entities);                    
-        }
-    });
-}
-
-function pageResults(entities, continuationToken, cb){
-    continuationToken.getNextPage(function(error, results, newContinuationToken){
-        entities = entities.concat(results);
-        if (!error && newContinuationToken.nextPartitionKey){
-            pageResults(entities, newContinuationToken, cb);
-        } else {
-            cb(error, entities);
-        }
-    });
+function fixSubscriptionNames(entities){
+	if (!entities) return;
+	entities.forEach(function(x){
+		if (x.subscription){
+			x.subscriptionName = subscriptions[x.subscription];
+		}
+	});
 }
 
 function isAdminAppSetting(emailAddress){
