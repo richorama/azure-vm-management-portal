@@ -1,0 +1,659 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+	<head>
+	    <meta charset="utf-8">
+	    <title>Azure VM Management Portal</title>
+	    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	    <meta name="description" content="">
+	    <meta name="author" content="Richard Astbury">
+      <link href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" rel="stylesheet">
+      <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.5.1/underscore-min.js"></script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"></script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/handlebars.js/1.0.0/handlebars.min.js"></script>
+      <!--script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script-->
+            
+	    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+	    <!--[if lt IE 9]>
+	      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+	    <![endif]-->
+
+      <script type="text/javascript">
+        function disableF5(e) { 
+          if ((e.which || e.keyCode) == 116) {
+            e.preventDefault(); 
+            refresh();
+          }
+        }
+
+        $(document).ready(function(){
+          $(document).bind("keydown", disableF5);  
+        });
+        
+      </script>
+      <style>
+      body{
+        color:#999999;
+      }
+      </style>
+  	</head>
+
+  	<body>
+      <div class="container" style="background: white;border-bottom: #ddd 1px solid;margin-bottom: 8px;">
+        <div class="pull-right" style="margin-top: 10px;">
+          <span id="authcontainer"></span>
+        </div>        
+        <h3 class="pull-left">Azure VM Management Portal</h3>
+      </div>
+      <div id="content" class="container"></div>
+    <script>
+
+var user;
+var allSubscriptions = [];
+
+$.get("/auth/probe?" + Math.random()).done(function(data){
+  if (data.auth === true){
+    // authorised
+    user = data;
+    var subs = ""
+    if (data.subscriptions && data.subscriptions.length > 1){
+      allSubscriptions = data.subscriptions;
+      subs = ' <a class="btn btn-default" href="#subscriptions">Subscriptions</a>';
+    }
+    $("#authcontainer").html("<span>" + data.displayName + " <a class='btn btn-default' href='/logout'>Log out</a>" + subs + "</span>");
+
+    if (data.subscriptions.length == 0){
+      view("no-subscription-template");
+    } else if (data.subscriptions.length == 1){
+      currentSubscription = data.subscriptions[0].id;
+      startApp();
+    } else {
+      view("choose-subscription-template", {subscriptions:allSubscriptions});
+    }
+    
+  } else {
+    // not authorised
+    $("#authcontainer").html("<a class='btn btn-primary' href='/login'>Log in</a>");
+  }
+});
+
+function createRange(x, y, value) {
+    var result = [];
+    if (x > y) {
+        for (var i = x; i >= y; i--) {
+            result.push({ value: String(i), selected: value == i });
+        }
+    } else {
+        for (var i = x; i <= y; i++) {
+            result.push({ value: String(i), selected: value == i });
+        }
+    }
+    return result;
+}
+
+function selectSubscription(subscriptionId){
+  currentSubscription = subscriptionId;
+  startApp();
+}
+
+function stop(hostedService, deploymentid, roleinstance){
+	$("#" + roleinstance).text("Stopping VM, this may take a few minutes");
+	$.post("/" + currentSubscription + "/stop/" + hostedService + "/" + deploymentid + "/" + roleinstance).done(function(data){
+    if (data.Code) alert("Error\n" + data.Code + "\n" + data.Message);
+	});
+}
+
+function start(hostedService, deploymentid, roleinstance){
+	$("#" + roleinstance).text("Starting VM, this may take a few minutes");
+	$.post("/" + currentSubscription + "/start/" + hostedService + "/" + deploymentid + "/" + roleinstance).done(function(data){
+    if (data.Code) alert("Error\n" + data.Code + "\n" + data.Message);
+	});
+}
+
+function deploy(){
+	var deploymentName = $("#deploymentName").val();
+	var image = $("#image").val();
+	loading();
+	$.post("/" + currentSubscription + "/deploy/" + deploymentName + "/" + image).done(function(data){
+    if (data.Code){
+      alert("Error\n" + data.Code + "\n" + data.Message);
+      app_router.newDeployment();
+    } else {
+      app_router.navigate("//success/deployment");
+    }
+		
+	});
+}
+
+function deleteDeployment(hostedService, deploymentid){
+	if (window.confirm("Are you sure you want to delete the Virtual Machine (and Cloud Service)?")){
+    loading();
+    if (!deploymentid){
+      deploymentid = "";
+    }
+		$.post("/" + currentSubscription + "/delete/" + hostedService + "/" + deploymentid).done(function(data){
+      if (data.Code) alert("Error\n" + data.Code + "\n" + data.Message);
+        app_router.navigate("//success/delete");
+		});
+	}
+}
+
+function mount(hostedService, deployment, role){
+	var disk = $("#disks").val();
+	loading();
+	$.post("/" + currentSubscription + "/mount/" + hostedService + "/" + deployment + "/" + role + "/" + disk).done(function(data){
+    if (data.Code) alert("Error\n" + data.Code + "\n" + data.Message);
+    app_router.navigate("//vm/" + hostedService);
+	});
+}
+
+function unmount(hostedService, deployment, role, lun){
+	loading();
+	$.post("/" + currentSubscription + "/unmount/" + hostedService + "/" + deployment + "/" + role + "/" + lun).done(function(data){
+    if (data.Code) alert("Error\n" + data.Code + "\n" + data.Message);
+    app_router.navigate("//vm/" + hostedService);
+	});	
+}
+
+function view(template, data){
+	if (!data){
+		data = {};
+	}
+  if (user && user.admin){
+    data.admin = true;
+  }
+  //console.log(data);
+	compiledTemplate = Handlebars.compile($("#" + template).html())	
+	$("#content").html(compiledTemplate(data));
+  currentTemplate = template;
+}
+
+function loading(){
+	$("#content").html("<div style='margin-top:50px;text-align: center;'>Loading...</div>");	
+}
+
+function findVM(name){
+  if (!dataModel) return undefined;
+  for (var i = 0; i < dataModel.services.length; i++){
+    var service = dataModel.services[i];
+    if (service.ServiceName === name){
+      return service.details;
+    }
+  }
+  return undefined;
+}
+
+function displayVm(name){
+  currentVmName = name;
+  var data = findVM(name);
+
+	if (data.Code == "ResourceNotFound"){
+    if (currentVmName == name){
+      view("vm-not-deployed",{Name:name}); 
+    }
+    return;	 
+	} 
+
+	var canMount = false;
+	data.HostedService = name;
+	data.RoleInstanceList.forEach(function(x){
+		if (x.PowerState == "Stopped"){
+			x.stopped = true;
+		}
+		if (x.PowerState == "Started"){
+			x.running = true;
+			canMount = true;
+		}
+    x.RDP = 3389;
+    if (x.InstanceEndpoints && x.InstanceEndpoints.length){
+      for (var i = 0; i < x.InstanceEndpoints.length; i++){
+        if (x.InstanceEndpoints[i].LocalPort == "3389"){
+          x.RDP = x.InstanceEndpoints[i].PublicPort;
+        }
+      }
+
+    }
+	});
+	
+	data.RoleList.forEach(function(x){
+		if (x.DataVirtualHardDisks){
+			x.DataVirtualHardDisks.forEach(function(y){
+				canMount = false;
+			});
+		}
+	});
+	data.canMount = canMount;
+  if (currentVmName == name){
+    view("vm-template",data);  
+  }
+}
+
+var currentVmName = undefined;
+var currentSubscription = undefined;
+var dataModel = undefined;
+
+function refresh(){
+  $.get("/" + currentSubscription + "/all/?" + Math.random()).done(function(data){
+      if (data && data.services){
+        data.services.forEach(function(y){
+          y.isdeployed = false;
+          y.DeploymentName = y.details.Name;
+          if (y.details.RoleInstanceList){
+            y.isdeployed = y.details.RoleInstanceList.length > 0;
+            y.details.RoleInstanceList.forEach(function(x){
+              if (x.PowerState == "Stopped"){
+                x.stopped = true;
+              } else if (x.PowerState == "Started"){
+                x.running = true;
+              } else {
+                x.unknown = true;
+              }
+              x.HostedService = y.ServiceName;
+              x.Url = y.details.Url;
+              x.DeploymentName = y.details.Name;
+
+              x.RDP = 3389;
+              if (x.InstanceEndpoints && x.InstanceEndpoints.length){
+                for (var i = 0; i < x.InstanceEndpoints.length; i++){
+                  if (x.InstanceEndpoints[i].LocalPort == "3389"){
+                    x.RDP = x.InstanceEndpoints[i].PublicPort;
+                  }
+                }
+              }
+
+            });
+          
+          }
+        });
+      }
+      dataModel = data;
+      if (currentTemplate == "vms-template"){
+        view("vms-template",{data:dataModel});
+      }
+      if (currentVmName){
+        displayVm(currentVmName);
+      } 
+    })
+  .fail(function(){
+    window.location = "/";
+  });
+  
+}
+
+setInterval(refresh,30000);
+
+var AppRouter = Backbone.Router.extend({
+  routes: {
+    "/" : "home",
+    "home" : "home",
+    "vm/:name": "vm",
+    "newDeployment":"newDeployment",
+    "mount/:service/:deployment/:role":"mount",
+    "success/:message": "success",
+    "log": "log",
+    "subscriptions":"subscriptions"
+  },
+  home:function(){
+  	currentVmName = undefined;
+  	loading();
+    if (dataModel){
+      view("vms-template",{data:dataModel});  
+    } else {
+      currentTemplate = "vms-template";
+    }
+  },
+  vm:function(name){
+  	loading();
+  	displayVm(name);
+  },
+  newDeployment:function(){
+  	currentVmName = undefined;
+  	loading();
+  	$.get("/" + currentSubscription + "/images/?" + Math.random()).done(function(data){
+  		view("new-deployment-template", {images:data});
+  	});
+  },
+  mount:function(service,deployment,role){	
+  	loading();
+  	$.get("/" + currentSubscription + "/disks/?" + Math.random()).done(function(disks){
+  		data = {HostedService:service, Deployment: deployment, Role:role};
+  		data.disks = disks;
+  		data.hasdisks = disks.length > 0;
+  		view("add-disk-template", data);
+  	});
+  },
+  success:function(message){
+    var msg = "";
+    if (message == "deployment"){
+      msg = "Your new Virtual Machine will be created shortly. We'll send you an email to confirm the details."
+    }
+    if (message == "delete"){
+      msg = "Your Virtual Machine will be deleted shortly. We'll send you an email to confirm." 
+    }
+    view("success-template", {message:msg});
+  },
+  log:function(){
+    loading();
+    $.get("/log?" + Math.random()).done(function (data) {
+        var now = new Date();
+        var days = createRange(1, 31, now.getDate());
+        var months = createRange(1, 12, now.getMonth() + 1);
+        var years = createRange(now.getFullYear(), now.getFullYear() - 1, now.getFullYear());
+        view("log-template", {data:data, days:days, months:months, years:years});
+    });
+  },
+  subscriptions:function(){
+    view("choose-subscription-template", {subscriptions:allSubscriptions});
+  }
+});
+var app_router = new AppRouter;
+var started = false;
+
+
+function viewLogDay() {
+    var day = Number($("#day").val());
+    var month = Number($("#month").val());
+    var year = Number($("#year").val());
+    loading();
+
+    $.get("/log/" + year + "/" + month + "/" + day + "?" + Math.random()).done(function (data) {
+        var now = new Date();
+        var days = createRange(1, 31, day);
+        var months = createRange(1, 12, month);
+        var years = createRange(now.getFullYear(), now.getFullYear() - 1, year);
+        view("log-template", { data: data, days: days, months: months, years: years });
+    });
+}
+
+
+function startApp(){
+  if (!started){
+    Backbone.history.start();
+    app_router.home();
+    refresh();
+    started = true;
+  } else {
+    loading();
+    dataModel = undefined;
+    app_router.navigate('//home');
+  }
+}
+
+function deleteRelationship(subscription, userid){
+  loading();
+  $.post("/deleteRelationship/" + subscription + "/" + userid).done(function(data){
+    app_router.users();    
+  });
+}
+
+function addUsersub(){
+  var subscription = $("#subscription").val();
+  var userid = $("#user").val();
+  loading();
+  $.post("/addRelationship/" + subscription + "/" + userid).done(function(data){
+    app_router.users();    
+  });
+}
+
+function toggle(id, show) {
+    if (show) {
+        $("." + id + "-show").show();
+        $("." + id + "-hide").hide();
+    } else {
+        $("." + id + "-show").hide();
+        $("." + id + "-hide").show();
+    }
+}
+
+    </script>
+
+    <script id="vms-template" type="text/x-handlebars-template">
+      <a style="margin-top:10px" class="btn btn-default pull-right" onclick="refresh()" href="javascript:void(0);">Refresh</a>
+
+      {{#if admin}}
+      <ul class="nav nav-pills">
+        <li class="active"><a href="#/home">Home</a></li>
+        <li><a href="#/log">Log</a></li>
+      </ul>
+      {{/if}}
+
+    	<h3>Virtual Machines</h3>
+
+    		{{#each data.services}}
+              <h3>
+              {{#if isdeployed}}
+              <a href="javascript:void(0);" id="deletebutton" onclick="deleteDeployment('{{ServiceName}}', '{{DeploymentName}}');" class="btn btn-default"><i class="glyphicon glyphicon-trash"></i></a>&nbsp;
+              {{else}}
+              <a href="javascript:void(0);" id="deletebutton" onclick="deleteDeployment('{{ServiceName}}');" class="btn btn-default"><i class="glyphicon glyphicon-trash"></i></a>&nbsp;
+              {{/if}}
+              <a href="#vm/{{ServiceName}}">{{ServiceName}}</a></h3>
+              <ul class="list-unstyled">
+            {{#each details.RoleInstanceList}}
+            <li>
+            {{#if running}}
+               {{InstanceName}} <span class="label label-success">Running</span>
+            {{/if}}
+            {{#if stopped}}
+              {{InstanceName}} <span class="label label-danger">Stopped</span>&nbsp;
+            {{/if}}
+            {{#if unknown}}
+              {{InstanceName}} <span class="label label-warning">{{PowerState}}  {{InstanceStatus}}</span>
+            {{/if}}
+
+          <span id="{{InstanceName}}">
+          {{#if running}}
+            <a href="javascript:void(0);" onclick="stop('{{HostedService}}','{{DeploymentName}}','{{InstanceName}}');" class="btn btn-default">Stop</a>
+            <a class="btn btn-default" href="/rdp/{{HostedService}}/{{RDP}}">RDP</a>
+            <a class="btn btn-default" href="{{Url}}" target="_blank">Browse</a>
+          {{/if}}
+          {{#if stopped}}
+            <a href="javascript:void(0);" onclick="start('{{HostedService}}','{{DeploymentName}}','{{InstanceName}}');" class="btn btn-default">Start</a>
+          {{/if}}
+
+          
+          </span>
+          </li>
+            {{/each}}
+            </ul>
+    
+        {{/each}}
+
+    	<p><a class="btn btn-default" href="#newDeployment">Deploy a new Virtual Machine</a></p>
+    </script>
+
+    <script id="loading-template" type="text/x-handlebars-template">
+      <div style='margin-top:50px;text-align: center;'>Loading...</div>
+    </script>
+
+    <script id="vm-template" type="text/x-handlebars-template">
+    	<p><a href="javascript:void(0)" onclick="app_router.navigate('//home');">&larr; Back to Virtual Machines</a></p>
+    	<h3>{{HostedService}}</h3>
+    	<blockquote><a href="{{Url}}ttrent_web" target="_blank"><strong>{{Url}}ttrent_web</strong></a></blockquote>
+    	<h4>Virtual Machine Details:</h4>
+
+    	{{#each RoleInstanceList}}
+    		<p>
+    			{{InstanceName}} ({{InstanceSize}}) {{PowerState}}
+    			<span id="{{InstanceName}}">
+
+          {{#if running}}
+            <span class="label label-success">Running</span>&nbsp;
+            <a href="javascript:void(0);" onclick="stop('{{HostedService}}','{{../../Name}}','{{InstanceName}}');" class="btn btn-default">Stop</a>
+            <a class="btn btn-default" href="/rdp/{{HostedService}}/{{RDP}}">RDP</a>
+          {{/if}}
+          {{#if stopped}}
+            <span class="label label-danger">Stopped</span>&nbsp;
+            <a href="javascript:void(0);" onclick="start('{{HostedService}}','{{../../Name}}','{{InstanceName}}');" class="btn btn-default">Start</a>
+          {{/if}}
+          {{#if unknown}}
+            <span class="label label-warning">{{PowerState}}  {{InstanceStatus}}</span>
+          {{/if}}          
+
+	    		</span>
+	    		
+    		</p>
+    	{{/each}}
+
+
+    	<h4>Attached Backup Disk:</h4>
+   
+    	{{#each RoleList}}
+    		{{#each DataVirtualHardDisks}}
+    			<p>
+    				{{DisplayName}} <a class="btn btn-default" href="javascript:void(0);" onclick="unmount('{{../../HostedService}}', '{{../../Name}}', '{{../RoleName}}', 0);">Detach</a>
+    			</p>
+    		{{/each}}
+    		{{#if ../canMount}}
+    			<p><a class="btn btn-default" href="#/mount/{{../../HostedService}}/{{../../Name}}/{{../RoleName}}">Add a new backup disk</a></p>
+	    	{{/if}}    		
+    	{{/each}}
+    
+    	
+
+    	<br/>
+		<button id="deletebutton" onclick="deleteDeployment('{{HostedService}}','{{Name}}');" class="btn btn-danger">Delete Virtual Machine</button>
+
+    </script>
+
+    <script id="vm-not-deployed" type="text/x-handlebars-template">
+    	<p><a href="javascript:void(0)" onclick="app_router.navigate('//home');">&larr; Back to Virtual Machines</a></p>
+    	<h3>Nothing deployed to {{Name}}</h3>
+
+		<button id="deletebutton" onclick="deleteDeployment('{{Name}}','');" class="btn btn-danger">Delete Hosted Service</button>
+
+
+    </script>
+
+    <script id="success-template" type="text/x-handlebars-template">
+      <h3>Success</h3>
+      <p>{{{message}}}</p>
+      <p><a class="btn btn-default" href="#/home">OK</a></p>
+    </script>
+
+    <script id="new-deployment-template" type="text/x-handlebars-template">
+    <p><a href="javascript:void(0)" onclick="app_router.navigate('//home');">&larr; Back to Virtual Machines</a></p>
+   	<h3>Deploy a New Virtual Machine</h3>
+
+     <form style="margin-top:40px">
+		  <fieldset>
+        <div class="row" style="margin:5px;">
+      
+  		    <div class="col-md-3"><label>Deployment Name</label></div>
+  		    <div class="col-md-3"><input class="form-control" type="text" id="deploymentName" value="newdeployment" maxlength="15"></div>
+        </div>
+
+        <div class="row" style="margin:5px">
+    
+  		    <div class="col-md-3"><label>Virtual Machine Image</label></div>
+  		    <div class="col-md-3">
+            <select id="image" class="form-control">
+    		    	{{#each images}}
+    		    		<option>{{Name}}</option>
+    		    	{{/each}}
+    		    </select>
+          </div>
+        </div>
+		    <div class="row" style="margin:5px">
+          <div class="col-md-6">
+            <a class="btn btn-success pull-right" onclick="deploy('{{name}}');">Create</a>
+          </div>
+        </div>
+		  </fieldset>
+		</form>
+
+    </script>
+
+    <script id="add-disk-template" type="text/x-handlebars-template">
+		<p><a href="#vm/{{HostedService}}">&larr; Back to Virtual Machine</a></p>
+		<h3>Attach Backup Disk on {{HostedService}}</h3>
+
+		<p class="form-inline">
+			<select id="disks" class="form-control">
+				{{#each disks}}
+					<option value="{{Name}}">{{DisplayName}}</option>
+				{{/each}}
+			</select>
+			<p><a href="javascript:void(0);" onclick="mount('{{HostedService}}','{{Role}}','{{Deployment}}');" class="btn  btn-default">Attach</a>
+			</p>
+		</p>
+    </script>
+
+    <script id="no-subscription-template" type="text/x-handlebars-template">
+      <h3>Sorry, you do not have access to any Azure subscriptions.</h3>
+      <p>An email has been sent to the administrator.</p>
+    </script>
+
+    <script id="choose-subscription-template" type="text/x-handlebars-template">
+    <h3>Please choose a subscription</h3>
+    <ul>
+      {{#each subscriptions}}
+        <li><a href="javascript:void(0);" onclick="selectSubscription('{{id}}')">{{name}}</a></li>
+      {{/each}}
+    </ul>
+    </script>
+
+    <script id="log-template" type="text/x-handlebars-template">
+      {{#if admin}}
+      <ul class="nav nav-pills">
+        <li><a href="#/home">Home</a></li>
+        <li class="active"><a href="#/log">Log</a></li>
+      </ul>
+      {{/if}}
+
+      <h3>Activity Log</h3>
+      <form style="margin-bottom:5px;" role="form" class="form-inline">Show log for 
+        Day:
+        <select id="day" class="form-control" style="width:75px;margin-right:10px">
+            {{#each days}}
+                {{#if selected}}
+                    <option selected>{{value}}</option>
+                {{else}}
+                    <option>{{value}}</option>
+                {{/if}}
+            {{/each}}
+        </select> 
+        Month:
+        <select id="month" class="form-control" style="width:75px;margin-right:10px">
+            {{#each months}}
+                {{#if selected}}
+                 <option selected>{{value}}</option>
+                {{else}}
+                <option>{{value}}</option>
+                {{/if}}
+            {{/each}}
+        </select> 
+        Year: 
+        <select id="year" class="form-control" style="width:125px;margin-right:10px">
+            {{#each years}}
+                {{#if selected}}
+                <option selected>{{value}}</option>
+                {{else}}
+                <option>{{value}}</option>
+                {{/if}}
+            {{/each}}
+
+          </select>
+            <a onclick="viewLogDay()" href="javascript:void(0);" class="btn btn-default" style="padding-left: 10px">View</a>
+        </form>
+      <table class="table table-bordered">
+        <tr>
+          <th>Time</th>
+          <th>Subscription</th>
+          <th>User</th>
+          <th>Message</th>
+        </tr>
+      {{#each data}}
+        <tr>
+          <td>{{Timestamp}}</td>
+          <td>{{subscriptionName}}</td>
+          <td>{{useremail}}</td>
+          <td>{{message}}{{error}}</td>
+        </tr>
+      {{/each}}
+      </table>
+    </script>
+
+  	</body>
+
+
+ </html>

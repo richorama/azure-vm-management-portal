@@ -1,0 +1,15 @@
+{
+  "name": "MidlandHRAzureAdmin",
+  "version": "0.0.1",
+  "private": "true",
+  "dependencies": {
+    "azure": "*",
+    "express": "*",
+    "passport": "*",
+    "async": "~0.2.9",
+    "sendgrid": "*",
+    "azure-publishsettings-parser": "*",
+    "passport-azure-ad": "git://github.com/MSOpenTech/passport-azure-ad.git",
+    "password-generator": "~0.2.2"
+  }
+}
