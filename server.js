@@ -119,9 +119,6 @@ function isAdmin(req, res, next) {
 app.get('/', function(req, res){
 	res.sendfile('_index.html');
 });
-app.get('/logo.png', function(req, res){
-	res.sendfile('logo.png');
-});
 
 app.get("/:sid/all", ensureAuthenticated, function(req,res){
 	var sms = getSms(req.params.sid);
