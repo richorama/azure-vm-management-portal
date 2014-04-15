@@ -28,9 +28,10 @@ var filename = "settings.json";
 if (process.env["APPSETTING_ENVIRONMENT"] && fs.existsSync(process.env["APPSETTING_ENVIRONMENT"] + ".json")){
     filename = process.env["APPSETTING_ENVIRONMENT"] + ".json"
 } 
+
 settings = JSON.parse(fs.readFileSync(filename).toString());
-var logger = require('./logging')(settings);
-var emailer = require('./emailer')(settings, logger);
+var logger = require('./lib/logging')(settings);
+var emailer = require('./lib/emailer')(settings, logger);
 
 function getSms(sid){
 	return parser.createServiceManagementService(azure, certs[sid]);
