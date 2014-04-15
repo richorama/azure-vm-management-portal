@@ -249,7 +249,7 @@ app.post("/:sid/deploy/:servicename/:imagename", ensureAuthenticated, function(r
 			}
 
 			vmrole.ConfigurationSets[1] = {
-				ConfigurationSetType = "NetworkConfiguration",
+				ConfigurationSetType : "NetworkConfiguration",
 				InputEndpoints : 
 				[{
 					LocalPort : 80,
