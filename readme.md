@@ -17,7 +17,7 @@ $ git clone https://github.com/richorama/azure-vm-management-portal.git
 
 ```
 
-__2) Download your publish settings file__ from [here](http://go.microsoft.com/fwlink/?LinkId=254432) and save it as `accounts.publishsettings`, overwriting the file that is already there.
+__2) Download your publish settings file__ from [here](http://go.microsoft.com/fwlink/?LinkId=254432) and save it as `accounts.publishsettings`, overwriting the existing file.
 
 __3) Create a Web Site in Azure__ (using the command below, or through the portal)
 
@@ -25,15 +25,17 @@ __3) Create a Web Site in Azure__ (using the command below, or through the porta
 $ azure site create --git
 ```
 
-__4) Update the `settings.json` file__ so the `realm` and `logoutUrl` settings are set to the web site address (i.e. http://YOURADDRESS.azurewebsites.net/)
+__4) Update the `settings.json` file__ 
+
+* Set the `realm` and `logoutUrl` settings to the web site address (i.e. `http://YOURADDRESS.azurewebsites.net/`)
 
 __5) Create an Active Directory in Azure__
 
 * Add yourself as a user of the domain
 * Add a new application to the Active Directory (an application my organization is developing)
-* For the sign in url and App id URI, add the azure web site address (http://YOURADDRESS.azurewebsites.net/)
-* Once created, click on the 'App Endpoints' button, and copy the URLs for 'FEDERATION METADATA DOCUMENT' and 'WS-FEDERATION SIGN-ON ENDPOINT' update the `settings.json` file, and set the 'identityMetadata' and 'identityProviderUrl' settings respectively.
-* Go to the 'configure' tab, and set the REPLY URL to 'http://YOURADDRESS.azurewebsites.net/login/callback'
+* For the sign in url and App ID URI, add the azure web site address (`http://YOURADDRESS.azurewebsites.net/`)
+* Once created, click on the 'App Endpoints' button, and copy the URLs for 'FEDERATION METADATA DOCUMENT' and 'WS-FEDERATION SIGN-ON ENDPOINT' update the `settings.json` file, and set the `identityMetadata` and `identityProviderUrl` settings respectively.
+* Go to the 'configure' tab, and set the REPLY URL to `http://YOURADDRESS.azurewebsites.net/login/callback`
 
 __6) Create a Storage Account__
 
@@ -41,7 +43,7 @@ __6) Create a Storage Account__
 
 __7) Create a SendGrid account__
 
-* Update the 'MailUsername', 'MailPassword' and 'MailFrom' settings in `settings.json` with the values from 
+* Update the `MailUsername`, `MailPassword` and `MailFrom` settings in `settings.json` with the values from SendGrid
 
 __8) Commit the changes made to the settings files, and push the code to Azure__
 
