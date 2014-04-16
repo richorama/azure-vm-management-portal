@@ -38,14 +38,28 @@
       </style>
   	</head>
 
-  	<body>
+    <body>
       <div class="container" style="background: white;border-bottom: #ddd 1px solid;margin-bottom: 8px;">
         <div class="pull-right" style="margin-top: 10px;">
           <span id="authcontainer"></span>
         </div>        
         <h3 class="pull-left">Azure VM Management Portal</h3>
       </div>
-      <div id="content" class="container"></div>
+      <div id="content" class="container">
+        <div class="jumbotron">
+          <h1>Welcome!</h1>
+          <p>This simple web portal makes it easy to create, delete, start and stop Virtual Machines running in Microsoft Azure</p>
+          <p><a class="btn btn-primary btn-lg" role="button" href="/login">Log in »</a></p>
+        </div>
+
+        <div class="pull-right">
+          Made by <a href="http://www.two10degrees.com/"><img src="http://two10degrees.blob.core.windows.net/two10degrees.png"></a>
+        </div>
+        <div class="pull-left">
+          <a href="https://github.com/richorama/azure-vm-management-portal">Fork</a> on GitHub
+        </div>
+
+      </div>
     <script>
 
 var user;
