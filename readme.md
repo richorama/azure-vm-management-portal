@@ -1,5 +1,9 @@
 # Azure VM Management Portal
 
+![List of Virtual Machines](images/current-deployments.png)
+
+![List of Virtual Machines](images/new-deployment.png)
+
 A cut-down portal for non-technical users to create, start, stop and delete Virtual Machine instances.
 
 Perfect for your training or sales teams to create and tear down machines, without having access to the whole Azure Portal.
@@ -7,6 +11,9 @@ Perfect for your training or sales teams to create and tear down machines, witho
 Run in Azure Websites.
 
 Uses Azure Active Directory to authenticate users, so you can synchronize it with your local domain.
+
+
+
 
 ## Installation
 
