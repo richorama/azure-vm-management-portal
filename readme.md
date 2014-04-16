@@ -10,15 +10,15 @@ Uses Azure Active Directory to authenticate users, so you can synchronize it wit
 
 ## Installation
 
-1. __Clone this repository__
+ 1. __Clone this repository__
 
 ```
 $ git clone https://github.com/richorama/azure-vm-management-portal.git
 
 ```
 
-2. __Download your publish settings file__ from [here](http://go.microsoft.com/fwlink/?LinkId=254432) and save it as `accounts.publishsettings`, overwriting the file that is already there.
-3. __Create a Web Site in Azure__ (using the command below, or through the portal)
+ 2. __Download your publish settings file__ from [here](http://go.microsoft.com/fwlink/?LinkId=254432) and save it as `accounts.publishsettings`, overwriting the file that is already there.
+ 3. __Create a Web Site in Azure__ (using the command below, or through the portal)
 
 ```
 $ azure site create --git
