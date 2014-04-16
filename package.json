@@ -4,7 +4,7 @@
   "private": "true",
   "dependencies": {
     "azure": "*",
-    "express": "*",
+    "express": "~3.4.3",
     "passport": "*",
     "async": "~0.2.9",
     "sendgrid": "*",
